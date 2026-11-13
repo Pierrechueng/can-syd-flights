@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """广州⇄悉尼 机票看板：本地服务 + 一键刷新。"""
-import json, os, random, threading, time
+import json, os, random, threading, time, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, date, timedelta
 from concurrent.futures import ThreadPoolExecutor
@@ -152,6 +152,26 @@ def do_refresh():
             save()
 
 
+_LIVE = {}
+_LIVE_LOCK = threading.Lock()
+
+def live_query(dep, ret):
+    """实时查询：往返取价 + 去/回程完整行程（时刻、机场、转机等待）。"""
+    import details
+    key = f"{dep}|{ret}"
+    now = time.time()
+    with _LIVE_LOCK:
+        hit = _LIVE.get(key)
+        if hit and now - hit[0] < 300:
+            return hit[1]
+    res = details.full(dep, ret)
+    res["cached"] = False
+    res["at"] = datetime.now().isoformat(timespec="seconds")
+    with _LIVE_LOCK:
+        _LIVE[key] = (now, res)
+    return res
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -179,6 +199,15 @@ class H(BaseHTTPRequestHandler):
                 "rows": rows, "meta": STATE["meta"], "job": STATE["job"],
                 "holidays": HOLIDAYS, "generated": datetime.now().isoformat(timespec="seconds")},
                 ensure_ascii=False))
+        if p == "/api/query":
+            q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            dep, ret = q.get("dep", [""])[0], q.get("ret", [""])[0]
+            if not dep:
+                return self._send(400, json.dumps({"error": "need dep"}))
+            try:
+                return self._send(200, json.dumps(live_query(dep, ret or None), ensure_ascii=False))
+            except Exception as e:
+                return self._send(500, json.dumps({"error": str(e)[:200]}))
         if p == "/api/status":
             return self._send(200, json.dumps({"job": STATE["job"], "meta": STATE["meta"]},
                                               ensure_ascii=False))
