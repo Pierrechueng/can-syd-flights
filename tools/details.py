@@ -3,7 +3,7 @@ import json, time, random
 from lxml import html as LH
 import api
 
-def payload(url, tries=5):
+def payload(url, tries=7):
     for i in range(tries):
         host = api.HOSTS[i % len(api.HOSTS)]
         base = url.split("?", 1)[1] if "?" in url else ""
@@ -16,7 +16,7 @@ def payload(url, tries=5):
             js = sc[0].text_content()
             data = js.split("data:", 1)[1].rsplit(",", 1)[0]
             if "errorHasStatus" in data:
-                time.sleep(1.5 + random.random() * 1.5); continue
+                time.sleep(1.5 + random.random() * 2.5); continue
             return json.loads(data)
         except Exception:
             time.sleep(1.2 + random.random())
@@ -24,7 +24,9 @@ def payload(url, tries=5):
 
 def hhmm(t):
     if not t: return None
-    return f"{t[0]:02d}:{t[1]:02d}"
+    h = t[0] or 0
+    m = t[1] if len(t) > 1 and t[1] is not None else 0
+    return f"{h:02d}:{m:02d}"
 
 def ymd(d):
     return f"{d[0]:04d}-{d[1]:02d}-{d[2]:02d}" if d else None
@@ -87,6 +89,10 @@ def oneway(d, frm="CAN", to="SYD", limit=4):
 
 def full(dep, ret):
     rt = roundtrip(dep, ret, 3)
+    for wait in (2.5, 5.0):
+        if rt: break
+        time.sleep(wait)
+        rt = roundtrip(dep, ret, 3)
     out = oneway(dep, "CAN", "SYD", 3)
     back = oneway(ret, "SYD", "CAN", 3)
     return {"dep": dep, "ret": ret, "rt": rt, "out": out, "back": back}
